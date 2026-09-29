@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>오보에 vs 바이올린 분류기</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+<script src="./model-data.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #ffd6e8;
+    font-family: 'Segoe UI', 'Pretendard', sans-serif;
+    color: #6b2140;
+  }
+  .card {
+    background: #ffffff;
+    border-radius: 24px;
+    padding: 40px 36px;
+    width: 420px;
+    max-width: 90vw;
+    box-shadow: 0 12px 30px rgba(219, 39, 119, 0.18);
+    text-align: center;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 6px;
+    color: #d6336c;
+  }
+  p.subtitle {
+    margin: 0 0 24px;
+    font-size: 14px;
+    color: #b16497;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    background: #fff0f6;
+    padding: 4px;
+    border-radius: 999px;
+  }
+  .tab-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 10px 0;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #a64d76;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s;
+  }
+  .tab-btn.active {
+    background: #f06595;
+    color: white;
+  }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  .upload-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    border: 2px dashed #f4a6c9;
+    border-radius: 16px;
+    padding: 24px;
+    background: #fff0f6;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .upload-area:hover, .upload-area.dragover {
+    background: #ffe1ee;
+    border-color: #d6336c;
+  }
+  .upload-area input { display: none; }
+  .upload-icon { font-size: 36px; margin-bottom: 8px; }
+  .upload-text { font-size: 14px; color: #a64d76; }
+  #preview {
+    margin-top: 20px;
+    max-width: 100%;
+    max-height: 240px;
+    border-radius: 16px;
+    display: none;
+    box-shadow: 0 4px 14px rgba(214, 51, 108, 0.15);
+  }
+
+  .webcam-box {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 280px;
+    border-radius: 16px;
+    background: #fff0f6;
+    overflow: hidden;
+  }
+  .webcam-box canvas { border-radius: 16px; }
+  .webcam-placeholder { font-size: 14px; color: #a64d76; padding: 20px; }
+
+  button {
+    font-family: inherit;
+  }
+  button#predict-btn, button#webcam-toggle-btn {
+    margin-top: 20px;
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 999px;
+    background: #f06595;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+  }
+  button#predict-btn:hover:not(:disabled), button#webcam-toggle-btn:hover:not(:disabled) { background: #e64980; }
+  button#predict-btn:active:not(:disabled), button#webcam-toggle-btn:active:not(:disabled) { transform: scale(0.98); }
+  button#predict-btn:disabled { background: #f8c9dc; cursor: not-allowed; }
+  button#webcam-toggle-btn.stop { background: #ae3ec9; }
+  button#webcam-toggle-btn.stop:hover { background: #9c36b5; }
+
+  #result {
+    margin-top: 24px;
+    text-align: left;
+  }
+  .result-row {
+    margin-bottom: 12px;
+  }
+  .result-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .bar-bg {
+    background: #ffe1ee;
+    border-radius: 999px;
+    height: 12px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #f783ac, #d6336c);
+    border-radius: 999px;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+  #status {
+    margin-top: 14px;
+    font-size: 13px;
+    color: #c2255c;
+    min-height: 18px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎻 오보에 vs 바이올린</h1>
+    <p class="subtitle">이미지를 업로드하거나 웹캠으로 오보에인지 바이올린인지 분류해드려요</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" id="tab-upload">파일 업로드</button>
+      <button class="tab-btn" id="tab-webcam">실시간 웹캠</button>
+    </div>
+
+    <div class="panel active" id="panel-upload">
+      <label class="upload-area" id="upload-area">
+        <div class="upload-icon">📷</div>
+        <div class="upload-text">클릭하거나 이미지를 드래그해서 업로드하세요</div>
+        <input type="file" id="file-input" accept="image/*">
+      </label>
+
+      <img id="preview" alt="미리보기">
+
+      <button id="predict-btn" disabled>분류하기</button>
+    </div>
+
+    <div class="panel" id="panel-webcam">
+      <div class="webcam-box" id="webcam-box">
+        <div class="webcam-placeholder">버튼을 눌러 웹캠을 시작하세요</div>
+      </div>
+      <button id="webcam-toggle-btn">웹캠 시작</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="result"></div>
+  </div>
+
+<script>
+// 실제 샘플 이미지로 테스트 확인: Class 1 = 바이올린, Class 2 = 오보에
+const LABEL_MAP = { "Class 1": "바이올린", "Class 2": "오보에" };
+
+function base64ToArrayBuffer(base64) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
+  return bytes.buffer;
+}
+
+const customIOHandler = {
+  load: async () => ({
+    modelTopology: window.TM_MODEL_TOPOLOGY,
+    weightSpecs: window.TM_WEIGHT_SPECS,
+    weightData: base64ToArrayBuffer(window.TM_WEIGHTS_BASE64),
+    format: 'layers-model',
+    generatedBy: 'TeachableMachine',
+    convertedBy: null
+  })
+};
+
+let model = null;
+
+const uploadArea = document.getElementById('upload-area');
+const fileInput = document.getElementById('file-input');
+const preview = document.getElementById('preview');
+const predictBtn = document.getElementById('predict-btn');
+const resultEl = document.getElementById('result');
+const statusEl = document.getElementById('status');
+
+const tabUpload = document.getElementById('tab-upload');
+const tabWebcam = document.getElementById('tab-webcam');
+const panelUpload = document.getElementById('panel-upload');
+const panelWebcam = document.getElementById('panel-webcam');
+const webcamBox = document.getElementById('webcam-box');
+const webcamToggleBtn = document.getElementById('webcam-toggle-btn');
+
+async function loadModel() {
+  statusEl.textContent = "모델 불러오는 중...";
+  try {
+    model = await tmImage.load(customIOHandler, window.TM_METADATA);
+    statusEl.textContent = "";
+    if (preview.src) predictBtn.disabled = false;
+  } catch (e) {
+    statusEl.textContent = "모델을 불러오지 못했어요.";
+    console.error(e);
+  }
+}
+loadModel();
+
+function renderResults(predictions) {
+  predictions = predictions.slice().sort((a, b) => b.probability - a.probability);
+  resultEl.innerHTML = predictions.map(p => {
+    const label = LABEL_MAP[p.className] || p.className;
+    const pct = (p.probability * 100).toFixed(1);
+    return `
+      <div class="result-row">
+        <div class="result-label"><span>${label}</span><span>${pct}%</span></div>
+        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+      </div>
+    `;
+  }).join('');
+}
+
+/* ---------- 탭 전환 ---------- */
+function switchTab(target) {
+  const toUpload = target === 'upload';
+  tabUpload.classList.toggle('active', toUpload);
+  tabWebcam.classList.toggle('active', !toUpload);
+  panelUpload.classList.toggle('active', toUpload);
+  panelWebcam.classList.toggle('active', !toUpload);
+  resultEl.innerHTML = '';
+  statusEl.textContent = '';
+  if (toUpload) {
+    stopWebcam();
+  }
+}
+tabUpload.addEventListener('click', () => switchTab('upload'));
+tabWebcam.addEventListener('click', () => switchTab('webcam'));
+
+/* ---------- 파일 업로드 ---------- */
+function handleFile(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const url = URL.createObjectURL(file);
+  preview.src = url;
+  preview.style.display = 'block';
+  predictBtn.disabled = !model;
+  resultEl.innerHTML = '';
+  statusEl.textContent = '';
+}
+
+fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+uploadArea.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  uploadArea.classList.add('dragover');
+});
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+uploadArea.addEventListener('drop', (e) => {
+  e.preventDefault();
+  uploadArea.classList.remove('dragover');
+  const file = e.dataTransfer.files[0];
+  fileInput.files = e.dataTransfer.files;
+  handleFile(file);
+});
+
+predictBtn.addEventListener('click', async () => {
+  if (!model || !preview.src) return;
+  predictBtn.disabled = true;
+  statusEl.textContent = '분석 중...';
+  resultEl.innerHTML = '';
+
+  const predictions = await model.predict(preview);
+  renderResults(predictions);
+
+  statusEl.textContent = '';
+  predictBtn.disabled = false;
+});
+
+/* ---------- 실시간 웹캠 ---------- */
+let webcam = null;
+let webcamRafId = null;
+let webcamRunning = false;
+
+async function startWebcam() {
+  if (!model) {
+    statusEl.textContent = '모델을 아직 불러오는 중이에요. 잠시 후 다시 시도해주세요.';
+    return;
+  }
+  try {
+    webcam = new tmImage.Webcam(280, 280, true);
+    await webcam.setup();
+    await webcam.play();
+    webcamBox.innerHTML = '';
+    webcamBox.appendChild(webcam.canvas);
+    webcamRunning = true;
+    webcamToggleBtn.textContent = '웹캠 정지';
+    webcamToggleBtn.classList.add('stop');
+    statusEl.textContent = '';
+    webcamLoop();
+  } catch (e) {
+    statusEl.textContent = '웹캠을 사용할 수 없어요. 카메라 권한을 확인해주세요.';
+    console.error(e);
+  }
+}
+
+function stopWebcam() {
+  webcamRunning = false;
+  if (webcamRafId) {
+    cancelAnimationFrame(webcamRafId);
+    webcamRafId = null;
+  }
+  if (webcam) {
+    webcam.stop();
+    webcam = null;
+  }
+  webcamBox.innerHTML = '<div class="webcam-placeholder">버튼을 눌러 웹캠을 시작하세요</div>';
+  webcamToggleBtn.textContent = '웹캠 시작';
+  webcamToggleBtn.classList.remove('stop');
+}
+
+async function webcamLoop() {
+  if (!webcamRunning || !webcam) return;
+  webcam.update();
+  const predictions = await model.predict(webcam.canvas);
+  renderResults(predictions);
+  webcamRafId = window.requestAnimationFrame(webcamLoop);
+}
+
+webcamToggleBtn.addEventListener('click', () => {
+  if (webcamRunning) {
+    stopWebcam();
+  } else {
+    startWebcam();
+  }
+});
+</script>
+</body>
+</html>
